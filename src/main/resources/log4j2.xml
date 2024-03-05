@@ -1,0 +1,119 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<configuration>
+    <Properties>
+        <Property name="log.env">$${prop:sweet.env:-dev}</Property>
+        <Property name="log.includeLocation">$${prop:sweet.includeLocation:-false}</Property>
+        <Property name="log.level">$${prop:sweet.level:-info}</Property>
+        <Property name="log.rpc.rate">$${prop:sweet.rpc.rate:-10}</Property>
+        <Property name="log.rpc.maxBurst">$${prop:sweet.rpc.maxBurst:-10}</Property>
+        <Property name="log.sizeMB">$${prop:sweet.sizeMB:-1024MB}</Property>
+        <Property name="log.rolloverMax">$${prop:sweet.rolloverMax:-10}</Property>
+        <Property name="log.pattern.intact">%d %t %-4p %X{X-trace-id} %X{X-operator} %X{X-identity} %c{1} %L - %m%n</Property>
+        <Property name="log.pattern.compact">%d %t %-4p %X{X-trace-id} %X{X-operator} %X{X-identity} %c{1} %L - %maxLen{%m}{$${prop:sweet.compact.maxLen:-10240}}%ex{$${prop:sweet.compact.maxEx:-500}}%n</Property>
+        <Property name="log.path">/export/Logs/$${prop:sweet.appName:-default}</Property>
+        <Property name="log.age.all">$${prop:sweet.age.all:-3d}</Property>
+        <Property name="log.age.biz">$${prop:sweet.age.biz:-7d}</Property>
+        <Property name="log.age.rpc">$${prop:sweet.age.rpc:-7d}</Property>
+        <Property name="log.age.error">$${prop:sweet.age.error:-7d}</Property>
+    </Properties>
+
+    <Appenders>
+        <!-- 控制台日志 -->
+        <Console name="STDOUT" target="SYSTEM_OUT">
+            <ScriptFilter onMatch="ACCEPT" onMisMatch="DENY">
+                <Script name="envFilter" language="JavaScript">
+                    "${log.env}" === "dev" || "${log.env}" === "test"
+                </Script>
+            </ScriptFilter>
+            <PatternLayout pattern="${log.pattern.intact}"/>
+        </Console>
+
+        <!-- 所有日志 -->
+        <RollingFile name="ALL" fileName="${log.path}/all.log"
+                     filePattern="${log.path}/$${date:yyyy-MM}/all.%d{yyyy-MM-dd}-%i.log"
+                     immediateFlush="false">
+            <PatternLayout pattern="${log.pattern.compact}"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy/>
+                <SizeBasedTriggeringPolicy size="${log.sizeMB}"/>
+            </Policies>
+            <DefaultRolloverStrategy max="${log.rolloverMax}">
+                <Delete basePath="${log.path}" maxDepth="2">
+                    <IfFileName glob="*/all*.log" />
+                    <IfLastModified age="${log.age.all}"/>
+                </Delete>
+            </DefaultRolloverStrategy>
+        </RollingFile>
+
+        <!-- 错误日志 -->
+        <RollingFile name="ERROR" fileName="${log.path}/error.log"
+                     filePattern="${log.path}/$${date:yyyy-MM}/error.%d{yyyy-MM-dd}-%i.log"
+                     immediateFlush="true">
+            <ThresholdFilter level="ERROR" onMatch="ACCEPT" onMismatch="DENY"/>
+            <PatternLayout pattern="${log.pattern.intact}"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy/>
+                <SizeBasedTriggeringPolicy size="${log.sizeMB}"/>
+            </Policies>
+            <DefaultRolloverStrategy max="${log.rolloverMax}">
+                <Delete basePath="${log.path}" maxDepth="2">
+                    <IfFileName glob="*/error*.log" />
+                    <IfLastModified age="${log.age.error}" />
+                </Delete>
+            </DefaultRolloverStrategy>
+        </RollingFile>
+
+        <!-- RPC日志 -->
+        <RollingFile name="RPC" fileName="${log.path}/rpc.log"
+                     filePattern="${log.path}/$${date:yyyy-MM}/rpc.%d{yyyy-MM-dd}-%i.log"
+                     immediateFlush="false">
+            <BurstFilter level="${log.level}" rate="${log.rpc.rate}" maxBurst="${log.rpc.maxBurst}"/>
+            <PatternLayout pattern="${log.pattern.intact}"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy/>
+                <SizeBasedTriggeringPolicy size="${log.sizeMB}"/>
+            </Policies>
+            <DefaultRolloverStrategy max="${log.rolloverMax}">
+                <Delete basePath="${log.path}" maxDepth="2">
+                    <IfFileName glob="*/rpc*.log" />
+                    <IfLastModified age="${log.age.rpc}" />
+                </Delete>
+            </DefaultRolloverStrategy>
+        </RollingFile>
+
+        <!-- 业务日志 -->
+        <RollingFile name="BIZ" fileName="${log.path}/biz.log"
+                     filePattern="${log.path}/$${date:yyyy-MM}/biz.%d{yyyy-MM-dd}-%i.log"
+                     immediateFlush="false">
+            <PatternLayout pattern="${log.pattern.intact}"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy/>
+                <SizeBasedTriggeringPolicy size="${log.sizeMB}"/>
+            </Policies>
+            <DefaultRolloverStrategy max="${log.rolloverMax}">
+                <Delete basePath="${log.path}" maxDepth="2">
+                    <IfFileName glob="*/biz*.log" />
+                    <IfLastModified age="${log.age.biz}" />
+                </Delete>
+            </DefaultRolloverStrategy>
+        </RollingFile>
+    </Appenders>
+
+    <Loggers>
+        <AsyncLogger name="BIZ" level="${log.level}" additivity="false" includeLocation="${log.includeLocation}">
+            <AppenderRef ref="STDOUT"/>
+            <AppenderRef ref="BIZ"/>
+        </AsyncLogger>
+        <AsyncLogger name="RPC" level="${log.level}" additivity="false" includeLocation="${log.includeLocation}">
+            <AppenderRef ref="STDOUT"/>
+            <AppenderRef ref="RPC"/>
+            <AppenderRef ref="ALL"/>
+            <AppenderRef ref="ERROR"/>
+        </AsyncLogger>
+        <AsyncRoot level="${log.level}" includeLocation="${log.includeLocation}">
+            <AppenderRef ref="STDOUT"/>
+            <AppenderRef ref="ALL"/>
+            <AppenderRef ref="ERROR"/>
+        </AsyncRoot>
+    </Loggers>
+</configuration>
