@@ -1,6 +1,8 @@
 package com.soulw.common.nameserver.domain.context.service.impl;
 
+import com.alibaba.fastjson.JSON;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.soulw.common.nameserver.config.SystemConfig;
 import com.soulw.common.nameserver.domain.client.ClientConfig;
@@ -17,6 +19,7 @@ import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -121,6 +124,9 @@ public class VoteServiceImpl implements VoteService {
 
     @Override
     public Map<String, ClientConfig> queryClients() {
+        if (!context.isHealth()) {
+            return Maps.newHashMap();
+        }
         return context.getClients();
     }
 
@@ -128,7 +134,7 @@ public class VoteServiceImpl implements VoteService {
     public boolean accept(Vote vote) {
         // step1. 心跳正常不接受投票
         ClientConfig curConfig = context.getCurConfig();
-        if (Objects.nonNull(curConfig) && !curConfig.isTimeout(systemConfig.getHeartbeatTime())) {
+        if (Objects.nonNull(curConfig) && !curConfig.isTimeout(systemConfig.getHeartbeatTimeDelta())) {
             return false;
         }
 
@@ -151,22 +157,14 @@ public class VoteServiceImpl implements VoteService {
         if (context.compareToReplace(vote)) {
             context.getVotingFlag().set(false);
             context.setVote(vote);
-            SystemConfig.Node master = getNode(vote);
+            SystemConfig.Node master = context.convertToNode(vote);
             voteGateway.slaveHeartbeat(master, context);
             Map<String, ClientConfig> clients = voteGateway.queryClients(master);
             context.setClients(clients);
             log.info("masterSync() success, vote={}, clients={}", vote, clients);
+        } else {
+            log.error("masterSync() failed, vote={}", vote);
         }
-    }
-
-    private SystemConfig.Node getNode(Vote vote) {
-        for (SystemConfig.Node node : systemConfig.getNodes()) {
-            if (StringUtils.equalsIgnoreCase(node.getIp(), vote.getIp()) &&
-                    Objects.equals(node.getPort(), vote.getPort())) {
-                return node;
-            }
-        }
-        return null;
     }
 
     private Boolean sendVoteRequest(SystemConfig.Node node, Vote vote) {
@@ -189,12 +187,12 @@ public class VoteServiceImpl implements VoteService {
     /**
      * 执行选举
      */
-    private void doVote() {
+    private boolean doVote() {
         if (context.isVoting() || context.isCurMaster()) {
-            return;
+            return false;
         }
         if (!context.getVotingFlag().compareAndSet(false, true)) {
-            return;
+            return false;
         }
         try {
             // step1. 发起第一轮选举
@@ -206,14 +204,14 @@ public class VoteServiceImpl implements VoteService {
             SystemConfig.Node curNode = context.getCurNode();
             for (SystemConfig.Node node : context.getAllNodes()) {
                 count++;
-                if (curNode == node) {
+                if (Objects.equals(curNode, node)) {
                     continue;
                 }
                 service.submit(() -> sendVoteRequest(node, vote));
             }
             // step3. 等待结果
             long startTime = System.currentTimeMillis(), remainTime;
-            int len = (count / 2) + 1;
+            int expectAcceptVoteNum = Math.max((count / 2) + 1, systemConfig.getMinNodeLen());
             int acceptTimes = 1;
             boolean isOk = false;
             for (int i = 0; i < count - 1; i++) {
@@ -230,7 +228,7 @@ public class VoteServiceImpl implements VoteService {
                     if (Objects.equals(Boolean.TRUE, future.get())) {
                         acceptTimes++;
                     }
-                    if (acceptTimes >= len) {
+                    if (acceptTimes >= expectAcceptVoteNum) {
                         isOk = true;
                         break;
                     }
@@ -240,25 +238,55 @@ public class VoteServiceImpl implements VoteService {
             }
             if (!isOk) {
                 log.error("doVote() vote failed, acceptTimes={}", acceptTimes);
-                return;
+                return false;
             }
 
             // step4. 同步成功
+            List<SystemConfig.Node> allNodes = context.getAllNodes();
             context.getClients().clear();
-            for (SystemConfig.Node node : context.getAllNodes()) {
-                if (curNode == node) {
+            for (SystemConfig.Node node : allNodes) {
+                if (Objects.equals(curNode, node)) {
                     heartbeat(newHeartbeat(node.getIp(), node.getPort(), Role.MASTER));
                     continue;
                 }
+                log.info("doVote() sync node={}", node);
                 executor.submit(() -> {
                     sendMasterSync(node, vote);
                 });
             }
+            return true;
         } catch (Exception e) {
             log.error("doVote() failed", e);
+            return false;
         } finally {
             context.setVote(null);
             context.getVotingFlag().set(false);
+        }
+    }
+
+    private boolean fallbackToQuery() {
+        try {
+            log.info("fallback to query...");
+            SystemConfig.Node curNode = context.getCurNode();
+            for (SystemConfig.Node node : context.getAllNodes()) {
+                if (Objects.equals(curNode, node)) {
+                    continue;
+                }
+                Map<String, ClientConfig> clients = voteGateway.queryClients(node);
+                log.info("fallbackToQuery() clients={}", JSON.toJSONString(clients));
+                for (ClientConfig value : clients.values()) {
+                    if (value.isMaster()) {
+                        SystemConfig.Node masterNode = context.convertToNode(value);
+                        voteGateway.slaveHeartbeat(masterNode, context);
+                        context.setClients(voteGateway.queryClients(masterNode));
+                        return true;
+                    }
+                }
+            }
+            return false;
+        } catch (Exception e) {
+            log.error("failback to query failed", e);
+            return false;
         }
     }
 
@@ -291,8 +319,8 @@ public class VoteServiceImpl implements VoteService {
                 log.info("ClusterWorker.run() is master, skip...");
                 return;
             }
-            if (Objects.nonNull(context.getVote())) {
-                SystemConfig.Node masterNode = getNode(context.getVote());
+            SystemConfig.Node masterNode = context.findMasterNode();
+            if (Objects.nonNull(masterNode)) {
                 context.setClients(voteGateway.queryClients(masterNode));
             }
         }
@@ -326,9 +354,11 @@ public class VoteServiceImpl implements VoteService {
             }
             // step4. 发送心跳
             try {
-                if (Objects.nonNull(context.getVote())) {
-                    voteGateway.slaveHeartbeat(getNode(context.getVote()), context);
+                SystemConfig.Node masterNode = context.findMasterNode();
+                if (Objects.nonNull(masterNode)) {
+                    voteGateway.slaveHeartbeat(masterNode, context);
                     heartbeatTime = System.currentTimeMillis();
+                    return;
                 }
             } catch (Exception e) {
                 log.error("heartbeat failed", e);
@@ -340,8 +370,13 @@ public class VoteServiceImpl implements VoteService {
                 } catch (InterruptedException e) {
                     log.error("sleep failed", e);
                 }
-                doVote();
-                if (context.isCurMaster()) {
+                if (!doVote()) {
+                    // step5.1 选举失败降级到查询
+                    if (fallbackToQuery()) {
+                        log.info("fallback to query success...");
+                        heartbeatTime = System.currentTimeMillis();
+                    }
+                } else {
                     heartbeatTime = System.currentTimeMillis();
                 }
             }

@@ -1,10 +1,10 @@
 package com.soulw.common.nameserver.domain.context.model;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.soulw.common.nameserver.config.SystemConfig;
 import com.soulw.common.nameserver.domain.client.ClientConfig;
 import lombok.Data;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -36,6 +36,44 @@ public class Context {
      * 属性
      */
     private Map<String, Object> attributes = Maps.newHashMap();
+
+    /**
+     * 从客户端列表中移除主客户端
+     */
+    public void removeMaster() {
+        ClientConfig master = getMaster();
+        clients.remove(master.getClientName());
+    }
+
+    /**
+     * 判断系统是否健康
+     *
+     * @return 返回系统健康状态，true表示健康，false表示不健康
+     * @throws NullPointerException 如果当前配置为空，则抛出空指针异常
+     */
+    public boolean isHealth() {
+        ClientConfig config = getCurConfig();
+        if (Objects.isNull(config)) {
+            return false;
+        }
+        return (System.currentTimeMillis() - config.getHeartbeatTime()) < systemConfig.getHeartbeatTimeDelta();
+    }
+
+    /**
+     * 查找主节点
+     *
+     * @return 返回包含主节点信息的Node对象
+     */
+    public SystemConfig.Node findMasterNode() {
+        if (Objects.nonNull(vote)) {
+            return convertToNode(vote);
+        } else {
+            return clients.values()
+                    .stream().filter(ClientConfig::isMaster)
+                    .map(this::convertToNode)
+                    .findFirst().orElse(null);
+        }
+    }
 
     /**
      * 获取主客户端配置
@@ -76,7 +114,21 @@ public class Context {
      * @return 返回系统配置中的所有节点列表
      */
     public List<SystemConfig.Node> getAllNodes() {
-        return systemConfig.getNodes();
+        List<SystemConfig.Node> r = Lists.newArrayList();
+        for (ClientConfig value : clients.values()) {
+            SystemConfig.Node node = convertToNode(value);
+            if (r.contains(node)) {
+                continue;
+            }
+            r.add(node);
+        }
+        for (SystemConfig.Node node : systemConfig.getNodes()) {
+            if (r.contains(node)) {
+                continue;
+            }
+            r.add(node);
+        }
+        return r;
     }
 
     /**
@@ -114,16 +166,33 @@ public class Context {
      * @return 当前节点
      */
     public SystemConfig.Node getCurNode() {
-        for (SystemConfig.Node node : systemConfig.getNodes()) {
-            if (StringUtils.equalsIgnoreCase(node.getIp(), systemConfig.getIp()) &&
-                    Objects.equals(node.getPort(), systemConfig.getPort())) {
-                return node;
-            }
-        }
-        return null;
+        return new SystemConfig.Node().setIp(systemConfig.getIp())
+                .setPort(systemConfig.getPort());
+    }
+
+    /**
+     * 获取与客户端配置匹配的节点
+     *
+     * @param clientConfig 客户端配置
+     * @return 匹配的节点，如果没有匹配的节点则返回null
+     */
+    public SystemConfig.Node convertToNode(ClientConfig clientConfig) {
+        return new SystemConfig.Node().setIp(clientConfig.getIp())
+                .setPort(clientConfig.getPort());
     }
 
     public boolean isAlreadyVoteTimeout() {
         return isTimeout(this.vote);
+    }
+
+    /**
+     * 将投票对象转换为节点对象
+     *
+     * @param vote 要转换的投票对象
+     * @return 转换后的节点对象
+     */
+    public SystemConfig.Node convertToNode(Vote vote) {
+        return new SystemConfig.Node().setIp(vote.getIp())
+                .setPort(vote.getPort());
     }
 }

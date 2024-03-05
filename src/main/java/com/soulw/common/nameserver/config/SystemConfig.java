@@ -1,6 +1,8 @@
 package com.soulw.common.nameserver.config;
 
 import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.experimental.Accessors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
@@ -43,6 +45,10 @@ public class SystemConfig {
      */
     private List<Node> nodes;
     /**
+     * 最小选举赞同节点
+     */
+    private Integer minNodeLen = 2;
+    /**
      * 当前端口
      */
     @Value("${server.port}")
@@ -54,11 +60,11 @@ public class SystemConfig {
     /**
      * 心跳时间
      */
-    private Long heartbeatTime = 30_000L;
+    private Long heartbeatTime = 10_000L;
     /**
      * 集群更新时间
      */
-    private Long clusterSyncTime = 10_000L;
+    private Long clusterSyncTime = 3_000L;
     /**
      * 启动心跳
      */
@@ -74,11 +80,22 @@ public class SystemConfig {
     }
 
     /**
+     * 获取心跳时间差
+     *
+     * @return 心跳时间差加上1000的结果
+     */
+    public Long getHeartbeatTimeDelta() {
+        return heartbeatTime + 1000;
+    }
+
+    /**
      * 节点
      *
      * @author Soulw
      */
     @Data
+    @Accessors(chain = true)
+    @EqualsAndHashCode
     public static class Node {
         private String ip;
         private Integer port;
