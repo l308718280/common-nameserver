@@ -34,9 +34,8 @@ public interface VoteGateway {
      *
      * @param node 节点信息
      * @param vote 投票信息
-     * @return 是否成功发送投票请求
      */
-    Boolean sendVoteRequest(SystemConfig.Node node, Vote vote);
+    void sendVoteRequest(SystemConfig.Node node, Vote vote);
 
     /**
      * 发送主节点同步

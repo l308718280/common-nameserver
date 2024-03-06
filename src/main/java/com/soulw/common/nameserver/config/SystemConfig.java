@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 
@@ -39,7 +40,7 @@ public class SystemConfig {
     /**
      * 选举超时时间
      */
-    private long voteTimeout = 60_000;
+    private long voteTimeout = Duration.ofSeconds(60_000).toNanos();
     /**
      * 所有的节点
      */

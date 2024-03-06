@@ -157,7 +157,7 @@ public class Context {
     }
 
     private boolean isTimeout(Vote vote) {
-        return Objects.nonNull(vote) && (System.currentTimeMillis() - vote.getVoteTime()) > systemConfig.getVoteTimeout();
+        return Objects.nonNull(vote) && (System.nanoTime() - vote.getVoteTime()) > systemConfig.getVoteTimeout();
     }
 
     /**

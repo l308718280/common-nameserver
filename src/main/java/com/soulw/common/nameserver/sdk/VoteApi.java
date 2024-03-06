@@ -19,7 +19,7 @@ import java.util.Map;
 public interface VoteApi {
 
     @RequestLine("POST /vote/heartbeat")
-    Result<Boolean> heartbeat(Heartbeat request);
+    Result<Void> heartbeat(Heartbeat request);
 
     @RequestLine("POST /vote/clusters")
     Result<Map<String, ClientConfig>> queryClusters(QueryClients queryClients);
@@ -28,6 +28,6 @@ public interface VoteApi {
     Result<Void> syncMaster(Vote vote);
 
     @RequestLine("POST /vote/accept")
-    Result<Boolean> acceptVote(Vote vote);
+    Result<Void> acceptVote(Vote vote);
 
 }

@@ -1,6 +1,7 @@
 package com.soulw.common.nameserver.controller;
 
 import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.serializer.SerializerFeature;
 import com.soulw.common.nameserver.domain.client.ClientConfig;
 import com.soulw.common.nameserver.domain.context.model.Heartbeat;
 import com.soulw.common.nameserver.domain.context.model.Vote;
@@ -40,17 +41,14 @@ public class VoteController implements VoteApi {
      */
     @PostMapping("/heartbeat")
     @Override
-    public Result<Boolean> heartbeat(@RequestBody Heartbeat heartbeat) {
-        printInputParam(heartbeat);
-        return call(() -> Result.success(voteService.heartbeat(heartbeat)));
+    public Result<Void> heartbeat(@RequestBody Heartbeat heartbeat) {
+        return call(heartbeat, () -> {
+            voteService.heartbeat(heartbeat);
+            return Result.success(null);
+        });
     }
 
-    private static void printInputParam(Object heartbeat) {
-        StackTraceElement[] trace = Thread.currentThread().getStackTrace();
-        log.info("call() [{}()] >>> request={}", trace[2].getMethodName(), JSON.toJSONString(heartbeat));
-    }
-
-    private <T> Result<T> call(Supplier<Result<T>> supplier) {
+    private <T> Result<T> call(Object request, Supplier<Result<T>> supplier) {
         Result<T> r;
         try {
             r = supplier.get();
@@ -59,7 +57,8 @@ public class VoteController implements VoteApi {
             r = Result.failed(e.getMessage());
         }
         StackTraceElement[] trace = Thread.currentThread().getStackTrace();
-        log.info("call() [{}()] <<< response={}", trace[2].getMethodName(), JSON.toJSONString(r));
+        log.info("Receive Http Request [{}()] >>> request={}, response={}", trace[2].getMethodName(), JSON.toJSONString(request),
+                JSON.toJSONString(r, SerializerFeature.PrettyFormat));
         return r;
     }
 
@@ -72,8 +71,7 @@ public class VoteController implements VoteApi {
     @PostMapping("/clusters")
     @Override
     public Result<Map<String, ClientConfig>> queryClusters(@RequestBody QueryClients queryClients) {
-        printInputParam(queryClients);
-        return call(() -> Result.success(voteService.queryClients()));
+        return call(queryClients, () -> Result.success(voteService.queryClients()));
     }
 
     /**
@@ -85,8 +83,7 @@ public class VoteController implements VoteApi {
     @PostMapping("/master/sync")
     @Override
     public Result<Void> syncMaster(@RequestBody Vote vote) {
-        printInputParam(vote);
-        return call(() -> {
+        return call(vote, () -> {
             voteService.masterSync(vote);
             return Result.success(null);
         });
@@ -100,8 +97,10 @@ public class VoteController implements VoteApi {
      */
     @PostMapping("/accept")
     @Override
-    public Result<Boolean> acceptVote(@RequestBody Vote vote) {
-        printInputParam(vote);
-        return call(() -> Result.success(voteService.accept(vote)));
+    public Result<Void> acceptVote(@RequestBody Vote vote) {
+        return call(vote, () -> {
+            voteService.accept(vote);
+            return Result.success(null);
+        });
     }
 }

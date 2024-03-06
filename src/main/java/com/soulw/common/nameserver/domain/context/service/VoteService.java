@@ -16,17 +16,15 @@ public interface VoteService {
      * 接受投票并返回投票是否被接受
      *
      * @param vote 表示投票的对象
-     * @return 如果投票被接受，则返回true；否则返回false
      */
-    boolean accept(Vote vote);
+    void accept(Vote vote);
 
     /**
      * 心跳检测方法
      *
      * @param heartbeat 心跳对象
-     * @return 结果对象
      */
-    boolean heartbeat(Heartbeat heartbeat);
+    void heartbeat(Heartbeat heartbeat);
 
     /**
      * 主同步方法，用于同步投票信息

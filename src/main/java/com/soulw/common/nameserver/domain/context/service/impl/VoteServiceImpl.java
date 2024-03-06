@@ -108,7 +108,7 @@ public class VoteServiceImpl implements VoteService {
     }
 
     @Override
-    public boolean heartbeat(Heartbeat heartbeat) {
+    public void heartbeat(Heartbeat heartbeat) {
         Preconditions.checkNotNull(heartbeat, "heartbeat is null");
         ClientConfig requestClient = heartbeat.getClientConfig();
         ClientConfig storageClient = context.getClients().computeIfAbsent(heartbeat.getClientConfig().getClientName(),
@@ -119,7 +119,6 @@ public class VoteServiceImpl implements VoteService {
                         .setIp(requestClient.getIp())
                         .setPort(requestClient.getPort()));
         storageClient.setHeartbeatTime(System.currentTimeMillis());
-        return true;
     }
 
     @Override
@@ -131,11 +130,11 @@ public class VoteServiceImpl implements VoteService {
     }
 
     @Override
-    public boolean accept(Vote vote) {
+    public void accept(Vote vote) {
         // step1. 心跳正常不接受投票
         ClientConfig curConfig = context.getCurConfig();
         if (Objects.nonNull(curConfig) && !curConfig.isTimeout(systemConfig.getHeartbeatTimeDelta())) {
-            return false;
+            throw new RuntimeException("当前服务心跳正常，不接受投票");
         }
 
         if (context.compareToReplace(vote)) {
@@ -143,12 +142,12 @@ public class VoteServiceImpl implements VoteService {
                     context.getVotingFlag().compareAndSet(false, true)) {
                 log.info("accept() accepted, vote={}", vote);
                 context.setVote(vote);
-                return true;
             } else {
-                return false;
+                throw new RuntimeException("当前服务正在投票中，不接受新的不同的投票");
             }
         } else {
-            return false;
+            log.info("accept(vote) failed, context.vote={}, req.vote={}", context.getVote(), vote);
+            throw new RuntimeException("在超时范围内，已有合适的投票，不接受新投票");
         }
     }
 
@@ -169,9 +168,10 @@ public class VoteServiceImpl implements VoteService {
 
     private Boolean sendVoteRequest(SystemConfig.Node node, Vote vote) {
         try {
-            return voteGateway.sendVoteRequest(node, vote);
+            voteGateway.sendVoteRequest(node, vote);
+            return true;
         } catch (Exception e) {
-            log.error("sendVoteRequest() failed", e);
+            log.error("sendVoteRequest() msg={}", e.getMessage());
             return false;
         }
     }
@@ -308,20 +308,26 @@ public class VoteServiceImpl implements VoteService {
     public class ClusterWorker implements Runnable {
         @Override
         public void run() {
-            if (!systemConfig.isCp()) {
-                return;
-            }
-            if (context.isVoting()) {
-                log.info("ClusterWorker.run() is voting, skip...");
-                return;
-            }
-            if (context.isCurMaster()) {
-                log.info("ClusterWorker.run() is master, skip...");
-                return;
-            }
-            SystemConfig.Node masterNode = context.findMasterNode();
-            if (Objects.nonNull(masterNode)) {
-                context.setClients(voteGateway.queryClients(masterNode));
+            try {
+                if (!systemConfig.isCp()) {
+                    return;
+                }
+                if (context.isVoting()) {
+                    log.info("ClusterWorker.run() is voting, skip...");
+                    return;
+                }
+                if (context.isCurMaster()) {
+                    log.info("ClusterWorker.run() is master, skip...");
+                    return;
+                }
+                SystemConfig.Node masterNode = context.findMasterNode();
+                if (Objects.nonNull(masterNode)) {
+                    context.setClients(voteGateway.queryClients(masterNode));
+                } else {
+                    log.error("masterNode is null");
+                }
+            } catch (Exception e) {
+                log.error("ClusterWorker.run() failed");
             }
         }
     }
@@ -336,22 +342,28 @@ public class VoteServiceImpl implements VoteService {
 
         @Override
         public void run() {
-            // step1. 检测是CP类型
-            if (!systemConfig.isCp() || !systemConfig.getHeartbeat()) {
+            try {
+                // step1. 检测是CP类型
+                if (!systemConfig.isCp() || !systemConfig.getHeartbeat()) {
+                    return;
+                }
+                // step2. 检测在选举中
+                if (context.isVoting()) {
+                    log.info("heartbeatWorker.run() voting, skip...");
+                    return;
+                }
+                // step3. 检测不是master
+                if (context.isCurMaster()) {
+                    heartbeat(newHeartbeat());
+                    heartbeatTime = System.currentTimeMillis();
+                    log.info("heartbeatWorker.run() master, skip...");
+                    return;
+                }
+            } catch (Exception e) {
+                log.error("precheck failed", e);
                 return;
             }
-            // step2. 检测在选举中
-            if (context.isVoting()) {
-                log.info("heartbeatWorker.run() voting, skip...");
-                return;
-            }
-            // step3. 检测不是master
-            if (context.isCurMaster()) {
-                heartbeat(newHeartbeat());
-                heartbeatTime = System.currentTimeMillis();
-                log.info("heartbeatWorker.run() master, skip...");
-                return;
-            }
+
             // step4. 发送心跳
             try {
                 SystemConfig.Node masterNode = context.findMasterNode();
@@ -363,22 +375,27 @@ public class VoteServiceImpl implements VoteService {
             } catch (Exception e) {
                 log.error("heartbeat failed", e);
             }
-            // step5. 检测是否发起选举
-            if ((System.currentTimeMillis() - heartbeatTime) >= systemConfig.getHeartbeatTime()) {
-                try {
-                    Thread.sleep((long) (500 * Math.random()));
-                } catch (InterruptedException e) {
-                    log.error("sleep failed", e);
-                }
-                if (!doVote()) {
-                    // step5.1 选举失败降级到查询
-                    if (fallbackToQuery()) {
-                        log.info("fallback to query success...");
+
+            // step5. 心跳失败，发起选举
+            try {
+                if ((System.currentTimeMillis() - heartbeatTime) >= systemConfig.getHeartbeatTime()) {
+                    try {
+                        Thread.sleep((long) (500 * Math.random()));
+                    } catch (InterruptedException e) {
+                        log.error("sleep failed", e);
+                    }
+                    if (!doVote()) {
+                        // step5.1 选举失败降级到查询
+                        if (fallbackToQuery()) {
+                            log.info("fallback to query success...");
+                            heartbeatTime = System.currentTimeMillis();
+                        }
+                    } else {
                         heartbeatTime = System.currentTimeMillis();
                     }
-                } else {
-                    heartbeatTime = System.currentTimeMillis();
                 }
+            } catch (Exception e) {
+                log.error("fallbackToQuery failed", e);
             }
         }
     }
