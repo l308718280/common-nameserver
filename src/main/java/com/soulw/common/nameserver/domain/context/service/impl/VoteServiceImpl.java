@@ -326,8 +326,8 @@ public class VoteServiceImpl implements VoteService {
                 } else {
                     log.error("masterNode is null");
                 }
-            } catch (Exception e) {
-                log.error("ClusterWorker.run() failed");
+            } catch (Throwable e) {
+                log.error("ClusterWorker.run() failed: " + e.getMessage());
             }
         }
     }
@@ -359,7 +359,7 @@ public class VoteServiceImpl implements VoteService {
                     log.info("heartbeatWorker.run() master, skip...");
                     return;
                 }
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 log.error("precheck failed", e);
                 return;
             }
@@ -372,7 +372,7 @@ public class VoteServiceImpl implements VoteService {
                     heartbeatTime = System.currentTimeMillis();
                     return;
                 }
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 log.error("heartbeat failed", e);
             }
 
@@ -394,7 +394,7 @@ public class VoteServiceImpl implements VoteService {
                         heartbeatTime = System.currentTimeMillis();
                     }
                 }
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 log.error("fallbackToQuery failed", e);
             }
         }

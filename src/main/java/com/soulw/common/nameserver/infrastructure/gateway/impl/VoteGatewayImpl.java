@@ -59,7 +59,7 @@ import java.util.concurrent.TimeUnit;
 public class VoteGatewayImpl implements VoteGateway {
 
     private static final OkHttpClient okHttpClient = getOkHttpClient();
-    private Map<String, VoteApi> apiCache = Maps.newConcurrentMap();
+    private final Map<String, VoteApi> apiCache = Maps.newConcurrentMap();
 
     public static OkHttpClient getOkHttpClient() {
         try {
