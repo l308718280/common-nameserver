@@ -15,7 +15,7 @@ import java.util.Map;
  *
  * @author SoulW
  */
-@Headers({"Content-Type:application/json", "Accept: */*"})
+@Headers({"Content-Type:application/json;charset=UTF-8", "Accept: */*"})
 public interface VoteApi {
 
     @RequestLine("POST /vote/heartbeat")

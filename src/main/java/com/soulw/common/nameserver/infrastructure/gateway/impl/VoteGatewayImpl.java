@@ -142,8 +142,7 @@ public class VoteGatewayImpl implements VoteGateway {
                         });
 
                         byte[] requestContent = request.body();
-                        requestBuilder.post(RequestBody.create(MediaType.get("application/json;charset=UTF-8"),
-                                requestContent));
+                        requestBuilder.post(RequestBody.create(null, requestContent));
 
                         Call call = okHttpClient.newCall(requestBuilder.build());
                         okhttp3.Response okResp = null;
